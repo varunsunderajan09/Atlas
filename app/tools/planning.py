@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import httpx
@@ -8,32 +9,35 @@ from app.config import settings
 
 
 class PlanningTool:
-    async def run(self, query: str) -> dict[str, Any]:
+    async def run(self, request_text: str, research_results: list[dict[str, Any]]) -> dict[str, Any]:
         if not settings.openai_api_key:
-            return {"plan": []}
+            return {"days": []}
 
-        system_prompt = (
-            "Return a compact executive plan as JSON only. "
-            'Schema: {"plan":[{"step":"", "owner":"", "timing":"", "notes":""}]}. '
-            "Use at most 5 steps. Keep notes short."
-        )
-
+        prompt = {
+            "request": request_text,
+            "candidates": research_results[:5],
+        }
         payload = {
-            "model": settings.openai_model,
+            "model": settings.openai_small_model,
             "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": query},
+                {
+                    "role": "system",
+                    "content": (
+                        "Create a concise itinerary JSON. "
+                        'Return {"days":[{"label":"","items":["",""]}]}. '
+                        "Use at most 3 days and at most 3 items per day."
+                    ),
+                },
+                {"role": "user", "content": json.dumps(prompt, ensure_ascii=True)},
             ],
             "temperature": 0.2,
             "max_tokens": settings.planning_max_tokens,
             "response_format": {"type": "json_object"},
         }
-
         headers = {
             "Authorization": f"Bearer {settings.openai_api_key}",
             "Content-Type": "application/json",
         }
-
         async with httpx.AsyncClient(timeout=settings.openai_timeout_seconds) as client:
             response = await client.post(
                 "https://api.openai.com/v1/chat/completions",
@@ -42,11 +46,5 @@ class PlanningTool:
             )
             response.raise_for_status()
             data = response.json()
-
-        content = data["choices"][0]["message"]["content"]
-        if isinstance(content, str):
-            import json
-
-            return json.loads(content)
-        return {"plan": []}
+        return json.loads(data["choices"][0]["message"]["content"])
 

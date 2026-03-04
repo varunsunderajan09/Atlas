@@ -33,6 +33,7 @@ RUN pip install --no-cache-dir --upgrade pip && \
 
 COPY app ./app
 COPY README.md .
+COPY TEMPLATE.md .
 
 EXPOSE 8000
 

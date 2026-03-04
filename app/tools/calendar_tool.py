@@ -1,52 +1,45 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from typing import Any
 
 from googleapiclient.discovery import build
 
 from app.calendar_auth import get_google_credentials
-from app.config import settings
 
 
-class GoogleCalendarTool:
-    def run(self, request: dict[str, Any]) -> dict[str, Any]:
+class CalendarTool:
+    def create_event(
+        self,
+        summary: str,
+        start_dt: str | None,
+        end_dt: str | None,
+        location: str | None = None,
+        description: str | None = None,
+    ) -> dict:
         credentials = get_google_credentials()
         service = build("calendar", "v3", credentials=credentials, cache_discovery=False)
-
-        start_dt = self._parse_datetime(request.get("start"))
-        end_dt = self._parse_datetime(request.get("end")) or (start_dt + timedelta(hours=1))
-
-        event = {
-            "summary": request.get("title", "Atlas Event"),
-            "description": request.get("description", ""),
-            "start": {"dateTime": start_dt.isoformat()},
-            "end": {"dateTime": end_dt.isoformat()},
+        start = self._parse_datetime(start_dt)
+        end = self._parse_datetime(end_dt) if end_dt else start + timedelta(hours=1)
+        body = {
+            "summary": summary,
+            "start": {"dateTime": start.isoformat()},
+            "end": {"dateTime": end.isoformat()},
+            "location": location or "",
+            "description": description or "",
         }
-
-        if request.get("location"):
-            event["location"] = request["location"]
-
-        created = (
-            service.events()
-            .insert(calendarId=settings.calendar_id, body=event)
-            .execute()
-        )
-
+        event = service.events().insert(calendarId="primary", body=body).execute()
         return {
-            "id": created.get("id", ""),
-            "title": created.get("summary", ""),
-            "start": created.get("start", {}).get("dateTime", ""),
-            "link": created.get("htmlLink", ""),
+            "summary": event.get("summary", summary),
+            "start": event.get("start", {}).get("dateTime", start.isoformat()),
+            "link": event.get("htmlLink", ""),
         }
 
     @staticmethod
     def _parse_datetime(value: str | None) -> datetime:
         if not value:
-            return datetime.now(timezone.utc) + timedelta(hours=1)
-        if value.endswith("Z"):
-            value = value.replace("Z", "+00:00")
-        parsed = datetime.fromisoformat(value)
+            return datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0)
+        normalized = value.replace("Z", "+00:00")
+        parsed = datetime.fromisoformat(normalized)
         if parsed.tzinfo is None:
             parsed = parsed.replace(tzinfo=timezone.utc)
         return parsed

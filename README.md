@@ -1,144 +1,114 @@
 # Atlas Assistant
 
-Atlas is a stateless WhatsApp-based executive AI assistant for Railway.
+## One-click Deploy to Railway
 
-## Project Structure
-
-```text
-atlas-assistant/
-  app/
-    main.py
-    agent.py
-    config.py
-    cache.py
-    calendar_auth.py
-    tools/
-      research.py
-      planning.py
-      availability.py
-      booking_links.py
-      calendar_tool.py
-  requirements.txt
-  Dockerfile
-  railway.json
-  README.md
-```
-
-## Environment Variables
+1. Push this repo to GitHub.
+2. In Railway, click `New Project`.
+3. Choose `Deploy from GitHub repo` or deploy the repo as a Railway template.
+4. Select this repository.
+5. Railway will build from the included `Dockerfile`.
+6. Add these environment variables before first production use:
 
 ```env
-WHATSAPP_VERIFY_TOKEN=
-WHATSAPP_ACCESS_TOKEN=
 OPENAI_API_KEY=
 SERP_API_KEY=
+WHATSAPP_VERIFY_TOKEN=
+WHATSAPP_ACCESS_TOKEN=
+WHATSAPP_PHONE_NUMBER_ID=
 GOOGLE_CLIENT_ID=
 GOOGLE_CLIENT_SECRET=
-GOOGLE_REFRESH_TOKEN=
-GOOGLE_REDIRECT_URI=urn:ietf:wg:oauth:2.0:oob
-GOOGLE_CALENDAR_ID=primary
-AGENT_NAME=Atlas
+GOOGLE_REDIRECT_BASE_URL=https://your-app.up.railway.app
 PORT=8000
-OPENAI_MODEL=gpt-4.1-mini
-OPENAI_CLASSIFIER_MODEL=gpt-4.1-nano
-OPENAI_TIMEOUT_SECONDS=20
-SERP_CACHE_TTL_SECONDS=900
-PLAYWRIGHT_TIMEOUT_MS=15000
-MAX_TOOL_RESULTS=5
-FINAL_RESPONSE_MAX_TOKENS=220
-CLASSIFIER_MAX_TOKENS=80
-PLANNING_MAX_TOKENS=180
-WHATSAPP_API_VERSION=v21.0
 ```
 
-## WhatsApp Setup
+7. Redeploy after setting variables.
+8. Open `https://your-app.up.railway.app/healthz`.
 
-1. Create a Meta developer app.
-2. Enable WhatsApp Cloud API.
-3. Copy the permanent access token into `WHATSAPP_ACCESS_TOKEN`.
-4. Copy the webhook verify token into `WHATSAPP_VERIFY_TOKEN`.
-5. Subscribe the webhook to WhatsApp message events.
-6. Point the webhook URL to `https://<your-railway-domain>/webhook`.
-7. Send messages starting with `@Atlas` or the configured `AGENT_NAME`.
+## Railway CLI Fallback
 
-## Railway Deployment
+```bash
+railway login
+railway init
+railway up
+railway variables set OPENAI_API_KEY=...
+railway variables set SERP_API_KEY=...
+railway variables set WHATSAPP_VERIFY_TOKEN=...
+railway variables set WHATSAPP_ACCESS_TOKEN=...
+railway variables set WHATSAPP_PHONE_NUMBER_ID=...
+railway variables set GOOGLE_CLIENT_ID=...
+railway variables set GOOGLE_CLIENT_SECRET=...
+railway variables set GOOGLE_REDIRECT_BASE_URL=https://your-app.up.railway.app
+```
 
-1. Create a new Railway project.
-2. Deploy this folder as a Dockerfile service.
-3. Add all environment variables.
-4. Railway will set `PORT`.
-5. After deploy, set the Meta webhook callback URL to `/webhook`.
-6. Verify with `GET /healthz`.
+## WhatsApp Setup Checklist
 
-## Google OAuth Setup
+1. Create a Meta app in Meta for Developers.
+2. Add the WhatsApp product.
+3. Copy the WhatsApp access token into `WHATSAPP_ACCESS_TOKEN`.
+4. Copy the phone number ID into `WHATSAPP_PHONE_NUMBER_ID`.
+5. Choose any random secret string and set it as `WHATSAPP_VERIFY_TOKEN`.
+6. In Meta webhook settings, set:
+   - Callback URL: `https://your-app.up.railway.app/webhook`
+   - Verify Token: the exact same `WHATSAPP_VERIFY_TOKEN`
+7. Subscribe the webhook to message events.
+8. Send test messages:
 
-1. Create a Google Cloud project.
-2. Enable the Google Calendar API.
-3. Create OAuth client credentials.
-4. Set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`.
-5. Generate a refresh token with calendar event scope.
-6. Set `GOOGLE_REFRESH_TOKEN`.
-7. Optionally set `GOOGLE_CALENDAR_ID`.
+```text
+@atlas-full best hotels in soho for next week
+@atlas-execute booking link for carbone tomorrow 8pm
+```
 
-## Change Agent Name
+Rules:
+- Prefix matching is case-insensitive.
+- Messages without `@atlas-full` or `@atlas-execute` are ignored.
 
-Set `AGENT_NAME`. Example: `AGENT_NAME=Chief`.
+## Google Calendar Setup Checklist
 
-Invocation becomes `@Chief <request>`.
+1. Open Google Cloud Console.
+2. Create or select a project.
+3. Enable Google Calendar API.
+4. Configure the OAuth consent screen.
+5. Create OAuth credentials for `Web application`.
+6. Add this redirect URI:
 
-## Test
+```text
+https://your-app.up.railway.app/auth/google/callback
+```
 
-Local run:
+7. Set Railway variables:
+   - `GOOGLE_CLIENT_ID`
+   - `GOOGLE_CLIENT_SECRET`
+   - `GOOGLE_REDIRECT_BASE_URL=https://your-app.up.railway.app`
+8. Deploy or redeploy.
+9. Visit:
+
+```text
+https://your-app.up.railway.app/auth/google/start
+```
+
+10. Complete Google sign-in and consent.
+11. The app stores the encrypted token in `/data/google_token.enc` when a writable volume exists. If no volume exists, it stores the token in memory and logs a warning.
+
+## Cost Controls
+
+- `@atlas-execute` forbids SerpAPI.
+- `@atlas-execute` uses pure parsing first and allows at most one LLM call only when parsing is not structured enough.
+- `@atlas-execute` does not run planning and does not run multi-step loops.
+- `@atlas-full` targets at most two LLM calls total: one classification call and one final rendering call.
+- SerpAPI results are cached in memory with a 24-hour TTL.
+- Playwright runs only when availability is explicitly requested.
+- Calendar actions only run when explicitly requested.
+- No database.
+- No background processing.
+- No payment execution.
+
+## Local Run
 
 ```bash
 python3.11 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 playwright install --with-deps chromium
-uvicorn app.main:app --reload --port 8000
+uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-Health check:
-
-```bash
-curl http://127.0.0.1:8000/healthz
-```
-
-Webhook verify example:
-
-```bash
-curl "http://127.0.0.1:8000/webhook?hub.mode=subscribe&hub.verify_token=YOUR_TOKEN&hub.challenge=123"
-```
-
-Sample webhook payload:
-
-```bash
-curl -X POST http://127.0.0.1:8000/webhook \
-  -H "Content-Type: application/json" \
-  -d '{
-    "entry": [{
-      "changes": [{
-        "value": {
-          "metadata": {"phone_number_id": "123"},
-          "messages": [{
-            "from": "15551234567",
-            "type": "text",
-            "text": {"body": "@Atlas research top executive assistants for travel planning"}
-          }]
-        }
-      }]
-    }]
-  }'
-```
-
-## Cost Optimization
-
-- Stateless request handling.
-- No database or persistent memory.
-- Compact classifier prompt.
-- One final formatting call per request when possible.
-- Calendar actions skip extra post-tool LLM work.
-- No embeddings.
-- No background jobs.
-- SerpAPI responses cached in-process.
-- Playwright only used for explicit availability checks.
-- Tool payloads are compact and capped.
